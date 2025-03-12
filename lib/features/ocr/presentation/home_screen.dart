@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:scanme/features/ocr/bloc/ocr_bloc.dart';
 import 'package:scanme/features/ocr/presentation/helpguide.dart';
 import 'package:scanme/features/ocr/presentation/homescreen_boxes/history_page.dart';
+import 'package:scanme/features/ocr/presentation/result_screen.dart';
 import 'package:scanme/features/ocr/presentation/settings.dart';
 import 'package:scanme/features/ocr/presentation/splash_screen.dart';
 
@@ -15,7 +16,26 @@ import '../../../core/injection.dart';
 class HomeScreen extends StatelessWidget {
   HomeScreen({super.key});
 
-  final ImagePicker _imagepicker = ImagePicker(); // Moved outside build method
+  final ImagePicker _imagepicker = ImagePicker();
+
+  @override
+  Widget build(BuildContext context) {
+    // Create bloc at the root of the HomeScreen
+    return BlocProvider(
+      create: (context) => getIt<OcrBloc>(),
+      child: HomeScreenContent(imagePicker: _imagepicker),
+    );
+  }
+}
+
+// Separate stateless widget for the content to use the bloc provided above
+class HomeScreenContent extends StatelessWidget {
+  final ImagePicker imagePicker;
+
+  const HomeScreenContent({
+    Key? key,
+    required this.imagePicker,
+  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -83,50 +103,50 @@ class HomeScreen extends StatelessWidget {
           ),
         ],
       ),
-      body: BlocProvider(
-        create: (context) => getIt<OcrBloc>(),
-        child: BlocListener<OcrBloc, OcrState>(
-          listener: (context, state) {
-            print(state); // Debugging purpose
-
-            if (state is UserLoadingState) {
-              showDialog(
-                context: context,
-                barrierDismissible: false, // Prevent dismissing manually
-                builder: (BuildContext context) {
-                  return AlertDialog(
-                    title: Text("Processing OCR.."),
-                    content: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        CircularProgressIndicator(),
-                        SizedBox(height: 10),
-                        Text("Please wait..."),
-                      ],
-                    ),
-                  );
-                },
-              );
-            } else if (state is UserLoadedState) {
-              Navigator.pop(context); // Close loading dialog
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text("OCR Success! Data: ${state.user}")),
-              );
-            } else if (state is UserErrorState) {
-              Navigator.pop(context); // Close loading dialog
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text("Error: ${state.error}"),
-                  backgroundColor: Colors.red,
-                ),
-              );
-            }
-          },
-          child: Column(
-            children: [
-              SizedBox(
-                height: 25,
+      body: BlocConsumer<OcrBloc, OcrState>(
+        listener: (context, state) {
+          print("BlocListener received state: $state");
+          
+          if (state is UserLoadingState) {
+            showDialog(
+              context: context,
+              barrierDismissible: false,
+              builder: (BuildContext context) {
+                return AlertDialog(
+                  title: Text("Processing OCR.."),
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(height: 10),
+                      Text("Please wait..."),
+                    ],
+                  ),
+                );
+              },
+            );
+          } else if (state is UserLoadedState) {
+            // First check if dialog is showing before trying to pop it
+            Navigator.of(context, rootNavigator: true).pop();
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text("OCR Success! Data: ${state.user}")),
+            );
+            Navigator.of(context).push(MaterialPageRoute(builder: (context)=>ResultScreen(user: state.user,)));
+          } else if (state is UserErrorState) {
+            // First check if dialog is showing before trying to pop it
+            Navigator.of(context, rootNavigator: true).pop();
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text("Error: ${state.error}"),
+                backgroundColor: Colors.red,
               ),
+            );
+          }
+        },
+        builder: (context, state) {
+          return Column(
+            children: [
+              SizedBox(height: 25),
               CarouselSlider(
                 items: [
                   Image.network(
@@ -144,13 +164,11 @@ class HomeScreen extends StatelessWidget {
                     height: 200,
                     enlargeCenterPage: true),
               ),
-              const Spacer(), // Push GridView to the bottom
+              const Spacer(),
               Padding(
-                padding: const EdgeInsets.only(
-                    bottom: 50), // Add some spacing at the bottom
+                padding: const EdgeInsets.only(bottom: 50),
                 child: GridView.builder(
-                  shrinkWrap:
-                      true, // Prevents GridView from taking unnecessary space
+                  shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
                   itemCount: texts.length,
                   gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -196,37 +214,29 @@ class HomeScreen extends StatelessWidget {
                   ),
                 ),
               ),
-
-              SizedBox(
-                height: 150,
-              ),
+              SizedBox(height: 150),
             ],
-          ),
-        ),
+          );
+        },
       ),
     );
   }
 
   Future<void> _openCamera(BuildContext context) async {
-    final ImagePicker _imagepicker = ImagePicker();
-    final XFile? image =
-        await _imagepicker.pickImage(source: ImageSource.camera);
+    final XFile? image = await imagePicker.pickImage(source: ImageSource.camera);
     if (image != null) {
       print("Image picked: ${image.path}");
 
       // Convert XFile to File
       final File imageFile = File(image.path);
 
-      // Pass the File object to the event
-      context.read<OcrBloc>().add(GetUserDataEvent(imageFile));
+      // Access the bloc through BlocProvider
+      BlocProvider.of<OcrBloc>(context).add(GetUserDataEvent(imageFile));
     }
   }
 
   Future<void> _openGallery(BuildContext context) async {
-    final ImagePicker _imagepicker =
-        ImagePicker(); // Ensure ImagePicker is initialized
-    final XFile? image =
-        await _imagepicker.pickImage(source: ImageSource.gallery);
+    final XFile? image = await imagePicker.pickImage(source: ImageSource.gallery);
 
     if (image != null) {
       print("Image picked: ${image.path}");
@@ -234,8 +244,8 @@ class HomeScreen extends StatelessWidget {
       // Convert XFile to File
       final File imageFile = File(image.path);
 
-      // Pass the File object to the event
-      context.read<OcrBloc>().add(GetUserDataEvent(imageFile));
+      // Access the bloc through BlocProvider
+      BlocProvider.of<OcrBloc>(context).add(GetUserDataEvent(imageFile));
     }
   }
 }
